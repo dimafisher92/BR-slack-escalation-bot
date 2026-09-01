@@ -176,3 +176,76 @@ def users_with_reaction(
 
 def is_resolved(conn: sqlite3.Connection, channel_id: str, ts: str) -> bool:
     return bool(reaction_names(conn, channel_id, ts) & set(config.RESOLVED_EMOJI))
+
+
+MATCHABLE_FIELDS = frozenset({"transaction_id", "player_id"})
+
+
+def find_duplicates(
+    conn: sqlite3.Connection,
+    *,
+    channel_id: str,
+    field: str,
+    value: str,
+    exclude_ts: str,
+    since: float,
+) -> list[sqlite3.Row]:
+    """Совпадения по одному полю в том же канале за окно, свежие первыми."""
+    if field not in MATCHABLE_FIELDS:
+        raise ValueError(f"Unsupported match field: {field}")
+
+    return conn.execute(
+        f"SELECT * FROM escalations "
+        f"WHERE channel_id = ? AND {field} = ? AND ts != ? AND created_at >= ? "
+        f"ORDER BY created_at DESC",
+        (channel_id, value, exclude_ts, since),
+    ).fetchall()
+
+
+_UNRESOLVED_CLAUSE = """
+    NOT EXISTS (
+        SELECT 1 FROM reactions r
+        WHERE r.channel_id = e.channel_id
+          AND r.ts = e.ts
+          AND r.name IN ({placeholders})
+    )
+"""
+
+
+def find_stale(
+    conn: sqlite3.Connection, *, channel_id: str, older_than: float, newer_than: float
+) -> list[sqlite3.Row]:
+    """Незакрытые эскалации старше порога, но внутри retention. Старые первыми."""
+    resolved = sorted(config.RESOLVED_EMOJI)
+    placeholders = ",".join("?" for _ in resolved)
+    clause = _UNRESOLVED_CLAUSE.format(placeholders=placeholders)
+
+    return conn.execute(
+        f"SELECT * FROM escalations e "
+        f"WHERE e.channel_id = ? AND e.stale_notified = 0 "
+        f"  AND e.created_at <= ? AND e.created_at >= ? AND {clause} "
+        f"ORDER BY e.created_at ASC",
+        (channel_id, older_than, newer_than, *resolved),
+    ).fetchall()
+
+
+def silence_old_stale(conn: sqlite3.Connection, *, channel_id: str, older_than: float) -> int:
+    """Пометить всё старое как уже обработанное. Нужно для холодного старта."""
+    cursor = conn.execute(
+        "UPDATE escalations SET stale_notified = 1 "
+        "WHERE channel_id = ? AND created_at <= ? AND stale_notified = 0",
+        (channel_id, older_than),
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
+def purge_older_than(conn: sqlite3.Connection, cutoff: float) -> int:
+    conn.execute(
+        "DELETE FROM reactions WHERE (channel_id, ts) IN "
+        "(SELECT channel_id, ts FROM escalations WHERE created_at < ?)",
+        (cutoff,),
+    )
+    cursor = conn.execute("DELETE FROM escalations WHERE created_at < ?", (cutoff,))
+    conn.commit()
+    return cursor.rowcount
