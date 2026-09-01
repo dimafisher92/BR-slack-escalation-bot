@@ -6,6 +6,9 @@ from dataclasses import dataclass
 _MARKDOWN_CHARS = str.maketrans({"*": "", "_": "", "`": ""})
 _WHITESPACE_RE = re.compile(r"[^\S\n]+")
 
+# Slack-permalink несёт ts сообщения слитно: p<10 цифр секунд><6 цифр микросекунд>.
+PERMALINK_RE = re.compile(r"/archives/[^/\s]+/p(\d{10})(\d{6})")
+
 PLAYER_ID_RE = re.compile(r"player\s*id\s*[:\-]?\s*(\d{4,})", re.IGNORECASE)
 TRANSACTION_ID_RE = re.compile(r"transaction\s*id\s*[:\-]?\s*(\d{6,})", re.IGNORECASE)
 
@@ -69,3 +72,14 @@ def is_trackable_message(event: dict) -> bool:
         return False
 
     return True
+
+
+def referenced_message_ts(text: str | None) -> set[str]:
+    """ts сообщений, на которые в тексте есть permalink.
+
+    Считается по сырому тексту, а не по normalize(): в URL встречаются
+    подчёркивания, которые нормализация вырезает.
+    """
+    if not text:
+        return set()
+    return {f"{seconds}.{micros}" for seconds, micros in PERMALINK_RE.findall(text)}

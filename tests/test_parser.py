@@ -1,4 +1,10 @@
-from guard.parser import ParsedIds, is_trackable_message, normalize, parse_ids
+from guard.parser import (
+    ParsedIds,
+    is_trackable_message,
+    normalize,
+    parse_ids,
+    referenced_message_ts,
+)
 
 PAYMENTS = (
     "*Player ID:* 688087847\n"
@@ -98,3 +104,29 @@ def test_is_trackable_rejects_bot_message():
 
 def test_is_trackable_rejects_service_subtypes():
     assert is_trackable_message({"ts": "1.0", "user": "U1", "subtype": "channel_join"}) is False
+
+
+def test_extracts_referenced_ts_from_permalink():
+    text = (
+        "<https://braverave.slack.com/archives/C0BGRG1HU6P/p1787790466935229>\n"
+        "*Player ID:* 705736527"
+    )
+    assert referenced_message_ts(text) == {"1787790466.935229"}
+
+
+def test_extracts_several_referenced_ts():
+    text = (
+        "see https://x.slack.com/archives/C1/p1787790466935229 and "
+        "https://x.slack.com/archives/C2/p1788282035059679"
+    )
+    assert referenced_message_ts(text) == {"1787790466.935229", "1788282035.059679"}
+
+
+def test_thread_permalink_with_query_params_still_parsed():
+    text = "https://x.slack.com/archives/C1/p1787790466935229?thread_ts=1787790466.935229&cid=C1"
+    assert referenced_message_ts(text) == {"1787790466.935229"}
+
+
+def test_no_permalink_yields_empty_set():
+    assert referenced_message_ts("Player ID: 688087847") == set()
+    assert referenced_message_ts(None) == set()

@@ -341,3 +341,45 @@ def test_failed_post_leaves_flag_unset_and_allows_retry(conn):
     assert len(working_client.posted) == 1
     assert "Duplicate escalation" in working_client.posted[0]["text"]
     assert db.get_escalation(conn, "C_PAY", str(NOW))["duplicate_notified"] == 1
+
+
+# Реальные epoch-значения: permalink несёт ровно 10+6 цифр, синтетический
+# NOW этого модуля в такой формат не укладывается.
+ORIG_TS = "1787790466.935229"
+FOLLOWUP_TS = "1788048000.000000"
+FOLLOWUP_NOW = 1788048000.0
+ORIG_LINK = "https://braverave.slack.com/archives/C_PAY/p1787790466935229"
+OTHER_LINK = "https://braverave.slack.com/archives/C_PAY/p1780000000000001"
+
+
+def _escalation(ts, *, prefix="", user="U_MARI"):
+    return {
+        "channel": "C_PAY",
+        "ts": ts,
+        "user": user,
+        "text": f"{prefix}*Player ID:* 705736527\n*Transaction ID:* 700000001780512046",
+    }
+
+
+def test_followup_linking_to_the_matched_original_stays_silent(conn, poster, client):
+    handlers.handle_message(conn, poster, CHANNELS, _escalation(ORIG_TS), float(ORIG_TS))
+    handlers.handle_message(
+        conn, poster, CHANNELS,
+        _escalation(FOLLOWUP_TS, prefix=f"<{ORIG_LINK}>\n\n", user="U_BORIS"),
+        FOLLOWUP_NOW,
+    )
+
+    assert client.posted == []
+    assert db.get_escalation(conn, "C_PAY", FOLLOWUP_TS) is not None
+
+
+def test_duplicate_linking_to_an_unrelated_message_still_reports(conn, poster, client):
+    handlers.handle_message(conn, poster, CHANNELS, _escalation(ORIG_TS), float(ORIG_TS))
+    handlers.handle_message(
+        conn, poster, CHANNELS,
+        _escalation(FOLLOWUP_TS, prefix=f"<{OTHER_LINK}>\n\n", user="U_BORIS"),
+        FOLLOWUP_NOW,
+    )
+
+    assert len(client.posted) == 1
+    assert "Duplicate escalation" in client.posted[0]["text"]

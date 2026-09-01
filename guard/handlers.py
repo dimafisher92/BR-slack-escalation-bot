@@ -44,6 +44,13 @@ def _check_duplicates(conn, poster: Poster, rule: dict, channel_id: str, ts: str
         since=since,
         before=row["created_at"],
     )
+    # Догоняющий пинг по своей же эскалации: саппорт прикладывает permalink
+    # на оригинал и просит статус. Автор про оригинал уже знает, поэтому
+    # ответ "это дубль, вот ссылка" пересказывал бы ему его же сообщение.
+    # Гасим только те совпадения, на которые он сослался явно; совпадение,
+    # которое он не упомянул, по-прежнему стоит показать.
+    linked = parser.referenced_message_ts(row["text"])
+    rows = [match for match in rows if match["ts"] not in linked]
     if not rows:
         return
 
