@@ -28,6 +28,8 @@ Slack-бот для воркспейса braverave. Отвечает в тред
 ## Развёртывание на VPS
 
 ```bash
+sudo apt-get update && sudo apt-get install -y sqlite3
+
 sudo useradd --system --home /opt/escalation-guard escalation
 sudo mkdir -p /opt/escalation-guard /var/lib/escalation-guard
 sudo chown -R escalation:escalation /opt/escalation-guard /var/lib/escalation-guard
@@ -55,6 +57,12 @@ journalctl -u escalation-guard -f
 sudo -u escalation DB_PATH=/tmp/dry.db .venv/bin/python -m guard.main --dry-run
 ```
 
+**Внимание**: `--dry-run` НЕ ДОЛЖЕН работать с production базой. В режиме
+dry-run poster сообщает об успехе, но не отправляет сообщение. Sweeper видит
+успех и помечает старые эскалации как обработанные. Если запустить dry-run на
+production.db, все нынешние stale payments-эскалации навсегда займут место
+среди обработанных — напоминания о них никогда не будут отправлены.
+
 В логе будут строки `DRY-RUN would reply ...` с полным текстом. Убедиться, что
 бот срабатывает там, где ожидается, и молчит там, где дубликатов нет.
 Затем удалить `/tmp/dry.db` и запустить сервис обычным образом.
@@ -63,7 +71,7 @@ sudo -u escalation DB_PATH=/tmp/dry.db .venv/bin/python -m guard.main --dry-run
 
 ```bash
 sudo crontab -e
-# 0 4 * * * DB_PATH=/var/lib/escalation-guard/guard.db /opt/escalation-guard/deploy/backup.sh
+# 0 4 * * * DB_PATH=/var/lib/escalation-guard/guard.db bash /opt/escalation-guard/deploy/backup.sh
 ```
 
 ## Разработка
