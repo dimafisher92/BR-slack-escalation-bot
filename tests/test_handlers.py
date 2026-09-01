@@ -24,6 +24,11 @@ class FakeClient:
         return {"ok": True}
 
 
+class FailingClient(FakeClient):
+    def chat_postMessage(self, *, channel, thread_ts, text):
+        raise RuntimeError("Slack is down")
+
+
 @pytest.fixture()
 def conn():
     connection = db.connect(":memory:")
@@ -259,3 +264,22 @@ def test_dispatch_routes_by_subtype(conn, poster, client):
         NOW,
     )
     assert db.get_escalation(conn, "C_PAY", str(NOW - DAY)) is None
+
+
+def test_failed_post_leaves_flag_unset_and_allows_retry(conn):
+    failing_client = FailingClient()
+    failing_poster = Poster(failing_client)
+
+    handlers.handle_message(conn, failing_poster, CHANNELS, payments_event(NOW - DAY), NOW - DAY)
+    handlers.handle_message(conn, failing_poster, CHANNELS, payments_event(NOW), NOW)
+
+    assert failing_client.posted == []
+    assert db.get_escalation(conn, "C_PAY", str(NOW))["duplicate_notified"] == 0
+
+    working_client = FakeClient()
+    working_poster = Poster(working_client)
+    handlers.handle_message(conn, working_poster, CHANNELS, payments_event(NOW), NOW)
+
+    assert len(working_client.posted) == 1
+    assert "Duplicate escalation" in working_client.posted[0]["text"]
+    assert db.get_escalation(conn, "C_PAY", str(NOW))["duplicate_notified"] == 1
