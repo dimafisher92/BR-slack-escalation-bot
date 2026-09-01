@@ -2,6 +2,8 @@
 Description=Braverave Escalation Guard
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,6 +13,10 @@ EnvironmentFile=/opt/escalation-guard/.env
 ExecStart=/opt/escalation-guard/.venv/bin/python -m guard.main
 Restart=always
 RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ReadWritePaths=/var/lib/escalation-guard
 StandardOutput=journal
 StandardError=journal
 

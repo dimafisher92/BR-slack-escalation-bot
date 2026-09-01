@@ -22,7 +22,9 @@ class FakeHistoryClient:
         self.calls.append({"channel": channel, "oldest": oldest, "cursor": cursor})
         pages = self.pages_by_channel.get(channel, [{"messages": []}])
         index = 0 if cursor is None else int(cursor)
-        return pages[index]
+        page = pages[index]
+        filtered = [m for m in page.get("messages", []) if float(m["ts"]) >= oldest]
+        return {**page, "messages": filtered}
 
 
 @pytest.fixture()
@@ -133,7 +135,10 @@ def test_backfill_preserves_existing_notification_flags(conn):
     assert db.get_escalation(conn, "C_PAY", str(NOW - DAY))["duplicate_notified"] == 1
 
 
-def test_run_backfill_covers_every_channel_with_seven_day_window(conn):
+def test_run_backfill_covers_every_channel_with_retention_window(conn):
+    # Не 7-дневное dup-окно: бэкфилл должен догонять весь retention-период
+    # (30 дней), иначе реакции, добавленные во время простоя на эскалациях
+    # 6.5-7 дней от роду, никогда не переиндексируются (finding 2).
     client = FakeHistoryClient(
         {
             "C_PAY": [{"messages": [message(NOW - DAY)]}],
@@ -145,7 +150,7 @@ def test_run_backfill_covers_every_channel_with_seven_day_window(conn):
 
     assert stored == 2
     assert {call["channel"] for call in client.calls} == {"C_PAY", "C_KYC"}
-    assert all(call["oldest"] == NOW - 7 * DAY for call in client.calls)
+    assert all(call["oldest"] == NOW - 30 * DAY for call in client.calls)
 
 
 def test_channel_failure_does_not_abort_the_rest(conn, caplog):

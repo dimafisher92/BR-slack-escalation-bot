@@ -19,7 +19,8 @@ class FakeClient:
         self.posted = []
 
     def conversations_history(self, *, channel, oldest, limit, cursor=None):
-        return {"messages": self.messages_by_channel.get(channel, [])}
+        messages = self.messages_by_channel.get(channel, [])
+        return {"messages": [m for m in messages if float(m["ts"]) >= oldest]}
 
     def chat_getPermalink(self, *, channel, message_ts):
         return {"ok": True, "permalink": f"https://s/{channel}/{message_ts}"}

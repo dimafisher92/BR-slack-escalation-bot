@@ -88,6 +88,18 @@ def test_newest_matches_come_first(conn):
     assert [row["ts"] for row in found] == [str(NOW - DAY), str(NOW - 5 * DAY)]
 
 
+def test_find_duplicates_excludes_matches_newer_than_before(conn):
+    add(conn, NOW - 2 * DAY)
+    add(conn, NOW)
+
+    found = db.find_duplicates(
+        conn, channel_id="C_PAY", field="transaction_id", value="TX1",
+        exclude_ts=str(NOW - 2 * DAY), since=NOW - 7 * DAY, before=NOW - 2 * DAY,
+    )
+
+    assert found == []
+
+
 def test_player_field_matching(conn):
     add(conn, NOW - DAY, transaction_id="TX_A", player_id="P9")
     add(conn, NOW, transaction_id="TX_B", player_id="P9")

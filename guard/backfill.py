@@ -53,7 +53,12 @@ def backfill_channel(conn, client, channel_id: str, oldest: float) -> int:
 
 
 def run_backfill(conn, client, channels: dict, now: float) -> int:
-    oldest = now - config.DUP_WINDOW_DAYS * config.DAY_SECONDS
+    # Не только окно сверки дублей: если бэкфилл смотрит только на 7 дней назад,
+    # реакции, добавленные во время простоя на эскалациях 6.5-7 дней от роду,
+    # никогда не переиндексируются, и sweeper шлёт ложные напоминания про уже
+    # решённые тикеты. Догоняем весь retention-период, а не только dup-окно.
+    window_days = max(config.DUP_WINDOW_DAYS, config.RETENTION_DAYS)
+    oldest = now - window_days * config.DAY_SECONDS
     total = 0
 
     for channel_id in channels:

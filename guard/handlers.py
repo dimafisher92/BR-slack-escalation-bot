@@ -36,7 +36,13 @@ def _check_duplicates(conn, poster: Poster, rule: dict, channel_id: str, ts: str
 
     since = now - config.DUP_WINDOW_DAYS * config.DAY_SECONDS
     rows = db.find_duplicates(
-        conn, channel_id=channel_id, field=field, value=value, exclude_ts=ts, since=since
+        conn,
+        channel_id=channel_id,
+        field=field,
+        value=value,
+        exclude_ts=ts,
+        since=since,
+        before=row["created_at"],
     )
     if not rows:
         return
@@ -92,11 +98,26 @@ def handle_message_changed(conn, poster: Poster, channels: dict, event: dict, no
 
     inner = event.get("message") or {}
     ts = inner.get("ts")
-    if not ts or db.get_escalation(conn, channel_id, ts) is None:
+    if not ts:
         return
 
-    _store(conn, channel_id, ts, inner.get("user", ""), inner.get("text", ""))
-    _check_duplicates(conn, poster, rule, channel_id, ts, now)
+    existing = db.get_escalation(conn, channel_id, ts)
+    if existing is None:
+        return
+
+    # Правки, не трогающие ID сверки, не должны переоткрывать проверку дубля
+    # (спека §5: "Если Transaction ID изменился..."). Иначе правка более
+    # раннего из пары дублей находит более позднего и постит "назад во времени".
+    field = rule["match"]
+    previous_value = existing[field]
+    # Payload правки без "user" не должен стирать сохранённого автора.
+    user_id = inner.get("user") or existing["user_id"]
+
+    _store(conn, channel_id, ts, user_id, inner.get("text", ""))
+
+    updated = db.get_escalation(conn, channel_id, ts)
+    if updated[field] != previous_value:
+        _check_duplicates(conn, poster, rule, channel_id, ts, now)
 
 
 def handle_message_deleted(conn, event: dict) -> None:

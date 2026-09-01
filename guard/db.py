@@ -42,12 +42,20 @@ CREATE TABLE IF NOT EXISTS meta (
 # Текст режется, чтобы база не росла на скриншотах и простынях.
 MAX_TEXT_LENGTH = 2000
 
+# Сколько ждать снятия блокировки, прежде чем sqlite3 вернёт "database is locked".
+BUSY_TIMEOUT_MS = 5000
+
 
 def connect(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, check_same_thread=False)
+    # isolation_level=None -> автокоммит: каждый execute() это своя транзакция,
+    # что убирает связку между потоком обработчика и потоком sweeper'а через
+    # общее соединение. Функции с несколькими операторами сами оборачивают
+    # себя в BEGIN/COMMIT там, где нужна атомарность.
+    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     return conn
 
 
@@ -93,6 +101,10 @@ def get_escalation(conn: sqlite3.Connection, channel_id: str, ts: str) -> sqlite
 
 
 def delete_escalation(conn: sqlite3.Connection, channel_id: str, ts: str) -> None:
+    # BEGIN/COMMIT явно: под автокоммитом (isolation_level=None) каждый execute()
+    # иначе был бы отдельной транзакцией, и конкурентный читатель мог бы увидеть
+    # эскалацию уже без реакций, а потом ещё раз без самой эскалации, или наоборот.
+    conn.execute("BEGIN")
     conn.execute("DELETE FROM escalations WHERE channel_id = ? AND ts = ?", (channel_id, ts))
     conn.execute("DELETE FROM reactions WHERE channel_id = ? AND ts = ?", (channel_id, ts))
     conn.commit()
@@ -189,16 +201,22 @@ def find_duplicates(
     value: str,
     exclude_ts: str,
     since: float,
+    before: float = float("inf"),
 ) -> list[sqlite3.Row]:
-    """Совпадения по одному полю в том же канале за окно, свежие первыми."""
+    """Совпадения по одному полю в том же канале за окно, свежие первыми.
+
+    `before` не даёт заглянуть вперёд во времени: "was already escalated"
+    должно указывать на что-то более раннее, чем проверяемое сообщение.
+    """
     if field not in MATCHABLE_FIELDS:
         raise ValueError(f"Unsupported match field: {field}")
 
     return conn.execute(
         f"SELECT * FROM escalations "
-        f"WHERE channel_id = ? AND {field} = ? AND ts != ? AND created_at >= ? "
+        f"WHERE channel_id = ? AND {field} = ? AND ts != ? "
+        f"  AND created_at >= ? AND created_at < ? "
         f"ORDER BY created_at DESC",
-        (channel_id, value, exclude_ts, since),
+        (channel_id, value, exclude_ts, since, before),
     ).fetchall()
 
 
@@ -241,6 +259,10 @@ def silence_old_stale(conn: sqlite3.Connection, *, channel_id: str, older_than: 
 
 
 def purge_older_than(conn: sqlite3.Connection, cutoff: float) -> int:
+    # Тот же аргумент, что и в delete_escalation: без явной транзакции конкурентный
+    # читатель под автокоммитом мог бы застать промежуточное состояние между
+    # двумя DELETE.
+    conn.execute("BEGIN")
     conn.execute(
         "DELETE FROM reactions WHERE (channel_id, ts) IN "
         "(SELECT channel_id, ts FROM escalations WHERE created_at < ?)",

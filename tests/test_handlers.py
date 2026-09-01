@@ -206,6 +206,64 @@ def test_edit_after_notification_does_not_post_again(conn, poster, client):
     assert len(client.posted) == 1
 
 
+def test_editing_earlier_duplicate_without_id_change_stays_silent(conn, poster, client):
+    # Finding 1's exact shape: A (earlier) and B (later) share a Transaction ID,
+    # so B correctly gets the "already escalated" reply. Editing A afterwards
+    # (a typo fix, ID unchanged) must NOT re-open the duplicate check on A --
+    # if it did, find_duplicates would return B (which is newer than A), and
+    # the bot would post a backwards "already escalated" reply on A's thread.
+    handlers.handle_message(conn, poster, CHANNELS, payments_event(NOW - 2 * DAY), NOW - 2 * DAY)
+    handlers.handle_message(conn, poster, CHANNELS, payments_event(NOW - DAY), NOW - DAY)
+    assert len(client.posted) == 1
+    assert client.posted[0]["thread_ts"] == str(NOW - DAY)
+
+    changed = {
+        "channel": "C_PAY",
+        "subtype": "message_changed",
+        "message": {
+            "ts": str(NOW - 2 * DAY),
+            "user": "U_MARI",
+            "text": "Player ID: 688087847\nTransaction ID: 700000001779189773 (typo fixed)",
+        },
+    }
+    handlers.handle_message_changed(conn, poster, CHANNELS, changed, NOW)
+
+    assert len(client.posted) == 1
+    assert db.get_escalation(conn, "C_PAY", str(NOW - 2 * DAY))["duplicate_notified"] == 0
+
+
+def test_message_changed_without_user_keeps_existing_author(conn, poster, client):
+    handlers.handle_message(conn, poster, CHANNELS, payments_event(NOW, user="U_MARI"), NOW)
+
+    changed = {
+        "channel": "C_PAY",
+        "subtype": "message_changed",
+        "message": {
+            "ts": str(NOW),
+            "text": "Player ID: 688087847\nTransaction ID: 700000001779189773 (typo fixed)",
+        },
+    }
+    handlers.handle_message_changed(conn, poster, CHANNELS, changed, NOW)
+
+    assert db.get_escalation(conn, "C_PAY", str(NOW))["user_id"] == "U_MARI"
+
+
+def test_own_thread_reply_arriving_as_message_event_is_ignored(conn, poster, client):
+    # The bot's own duplicate/stale replies come back through the message
+    # stream as a bot-authored reply inside the original message's thread.
+    # is_trackable_message's guards (bot_id, thread reply) must hold at the
+    # handler level too, or the bot would index and re-process its own posts.
+    event = payments_event(NOW)
+    event["bot_id"] = "B_GUARD"
+    event["subtype"] = "bot_message"
+    event["thread_ts"] = str(NOW - DAY)
+
+    handlers.handle_message(conn, poster, CHANNELS, event, NOW)
+
+    assert db.get_escalation(conn, "C_PAY", str(NOW)) is None
+    assert client.posted == []
+
+
 def test_deleted_message_is_removed_from_index(conn, poster, client):
     handlers.handle_message(conn, poster, CHANNELS, payments_event(NOW - DAY), NOW - DAY)
 

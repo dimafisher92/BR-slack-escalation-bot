@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from guard import config
 
 HOUR_SECONDS = 3600
-DAY_SECONDS = 86400
 
 
 @dataclass(frozen=True)
@@ -23,9 +22,9 @@ def _plural(count: int, word: str) -> str:
 def humanize_age(seconds: float) -> str:
     if seconds < HOUR_SECONDS:
         return f"{_plural(max(1, int(seconds // 60)), 'minute')} ago"
-    if seconds < DAY_SECONDS:
+    if seconds < config.DAY_SECONDS:
         return f"{_plural(int(seconds // HOUR_SECONDS), 'hour')} ago"
-    return f"{_plural(int(seconds // DAY_SECONDS), 'day')} ago"
+    return f"{_plural(int(seconds // config.DAY_SECONDS), 'day')} ago"
 
 
 def status_label(reaction_names: frozenset[str]) -> str:
