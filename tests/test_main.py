@@ -20,7 +20,8 @@ class FakeClient:
 
     def conversations_history(self, *, channel, oldest, limit, cursor=None):
         messages = self.messages_by_channel.get(channel, [])
-        return {"messages": [m for m in messages if float(m["ts"]) >= oldest]}
+        # oldest приходит строкой в формате Slack, как в проде.
+        return {"messages": [m for m in messages if float(m["ts"]) >= float(oldest)]}
 
     def chat_getPermalink(self, *, channel, message_ts):
         return {"ok": True, "permalink": f"https://s/{channel}/{message_ts}"}

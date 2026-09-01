@@ -8,6 +8,15 @@ log = logging.getLogger(__name__)
 
 PAGE_SIZE = 200
 
+# Slack принимает timestamp как секунды, точку и ровно шесть знаков. Сырой
+# Python-float стрингуется в семь и более (1785691099.8141618), и на таком
+# oldest API молча отдаёт пустую выборку: ok=true, ни error, ни warning.
+TS_PRECISION = 6
+
+
+def _slack_ts(value: float) -> str:
+    return f"{value:.{TS_PRECISION}f}"
+
 
 def _store_message(conn, channel_id: str, msg: dict) -> bool:
     if not parser.is_trackable_message(msg):
@@ -39,7 +48,7 @@ def backfill_channel(conn, client, channel_id: str, oldest: float) -> int:
 
     while True:
         response = client.conversations_history(
-            channel=channel_id, oldest=oldest, limit=PAGE_SIZE, cursor=cursor
+            channel=channel_id, oldest=_slack_ts(oldest), limit=PAGE_SIZE, cursor=cursor
         )
         for msg in response.get("messages", []):
             if _store_message(conn, channel_id, msg):

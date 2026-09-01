@@ -1,4 +1,5 @@
 import logging
+import re
 
 import pytest
 
@@ -23,7 +24,10 @@ class FakeHistoryClient:
         pages = self.pages_by_channel.get(channel, [{"messages": []}])
         index = 0 if cursor is None else int(cursor)
         page = pages[index]
-        filtered = [m for m in page.get("messages", []) if float(m["ts"]) >= oldest]
+        # Настоящий Slack получает oldest строкой и парсит её сам, поэтому
+        # фейк обязан принимать строку, а не только float. Пока он сравнивал
+        # float с float, он был согласен сам с собой и пропустил боевой баг.
+        filtered = [m for m in page.get("messages", []) if float(m["ts"]) >= float(oldest)]
         return {**page, "messages": filtered}
 
 
@@ -150,7 +154,31 @@ def test_run_backfill_covers_every_channel_with_retention_window(conn):
 
     assert stored == 2
     assert {call["channel"] for call in client.calls} == {"C_PAY", "C_KYC"}
-    assert all(call["oldest"] == NOW - 30 * DAY for call in client.calls)
+    assert all(float(call["oldest"]) == NOW - 30 * DAY for call in client.calls)
+
+
+def test_backfill_sends_slack_formatted_timestamp(conn):
+    # Slack принимает ts как десять цифр, точка и ровно шесть знаков. Сырой
+    # Python-float стрингуется в семь и более знаков (1785691099.8141618),
+    # и Slack на такой оценке молча возвращает пустую выборку: ни ошибки,
+    # ни warning. Именно так бэкфилл в проде вернул 0 сообщений из каналов,
+    # где их сотни.
+    client = FakeHistoryClient({"C_PAY": [{"messages": []}]})
+
+    backfill.run_backfill(conn, client, {"C_PAY": CHANNELS["C_PAY"]}, NOW)
+
+    sent = client.calls[0]["oldest"]
+    assert isinstance(sent, str), f"oldest ушёл как {type(sent).__name__}, а не строкой"
+    assert re.fullmatch(r"-?\d+\.\d{6}", sent), f"неверный формат ts: {sent!r}"
+
+
+def test_backfill_truncates_a_real_epoch_float_to_six_places(conn):
+    client = FakeHistoryClient({"C_PAY": [{"messages": []}]})
+    now = 1788283099.8141618  # даёт семь знаков после точки через str()
+
+    backfill.run_backfill(conn, client, {"C_PAY": CHANNELS["C_PAY"]}, now)
+
+    assert client.calls[0]["oldest"] == "1785691099.814162"
 
 
 def test_channel_failure_does_not_abort_the_rest(conn, caplog):
