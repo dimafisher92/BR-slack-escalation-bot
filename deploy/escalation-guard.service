@@ -1,0 +1,18 @@
+[Unit]
+Description=Braverave Escalation Guard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=escalation
+WorkingDirectory=/opt/escalation-guard
+EnvironmentFile=/opt/escalation-guard/.env
+ExecStart=/opt/escalation-guard/.venv/bin/python -m guard.main
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

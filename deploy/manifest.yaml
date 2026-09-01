@@ -1,0 +1,26 @@
+display_information:
+  name: Escalation Guard
+  description: Flags duplicate escalations and unresolved requests
+  background_color: "#2c2d30"
+features:
+  bot_user:
+    display_name: Escalation Guard
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - channels:read
+      - chat:write
+      - reactions:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - reaction_added
+      - reaction_removed
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
