@@ -66,7 +66,7 @@ def test_duplicate_player_text_lists_matches():
         ),
     ]
 
-    text = duplicate_player_text(player_id="P42", matches=matches, now=NOW)
+    text = duplicate_player_text(player_id="P42", matches=matches, now=NOW, window_days=7)
 
     assert "Possible duplicate" in text
     assert "P42" in text
@@ -77,7 +77,7 @@ def test_duplicate_player_text_lists_matches():
 
 def test_duplicate_player_text_uses_singular_for_one_match():
     matches = [Match(permalink=None, user_id="U_A", created_at=NOW - DAY, reaction_names=frozenset())]
-    text = duplicate_player_text(player_id="P42", matches=matches, now=NOW)
+    text = duplicate_player_text(player_id="P42", matches=matches, now=NOW, window_days=7)
     assert "1 escalation " in text
     assert "escalations" not in text
 
@@ -88,7 +88,7 @@ def test_duplicate_player_text_truncates_to_three_and_reports_rest():
         for i in range(1, 6)
     ]
 
-    text = duplicate_player_text(player_id="P42", matches=matches, now=NOW)
+    text = duplicate_player_text(player_id="P42", matches=matches, now=NOW, window_days=7)
 
     assert text.count("\n- ") == 3
     assert "and 2 more" in text
@@ -111,3 +111,15 @@ def test_stale_reminder_omits_cc_line_when_nobody_to_ping():
     text = stale_reminder_text(player_id="P1", transaction_id=None, mention_user_ids=[])
     assert "cc " not in text
     assert "Transaction" not in text
+
+
+def test_player_text_renders_a_sub_day_window_in_hours():
+    matches = [Match(permalink=None, user_id="U_A", created_at=NOW - 3600, reaction_names=frozenset())]
+    text = duplicate_player_text(player_id="P1", matches=matches, now=NOW, window_days=0.5)
+    assert "in the last 12 hours" in text
+
+
+def test_player_text_renders_a_multi_day_window_in_days():
+    matches = [Match(permalink=None, user_id="U_A", created_at=NOW - DAY, reaction_names=frozenset())]
+    text = duplicate_player_text(player_id="P1", matches=matches, now=NOW, window_days=7)
+    assert "in the last 7 days" in text

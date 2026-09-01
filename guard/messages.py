@@ -27,6 +27,13 @@ def humanize_age(seconds: float) -> str:
     return f"{_plural(int(seconds // config.DAY_SECONDS), 'day')} ago"
 
 
+def _window_label(days: float) -> str:
+    """Окно словами. У каналов оно разное, в bonuses меньше суток."""
+    if days < 1:
+        return _plural(int(round(days * 24)), "hour")
+    return _plural(int(days), "day")
+
+
 def status_label(reaction_names: frozenset[str]) -> str:
     if reaction_names & set(config.RESOLVED_EMOJI):
         return "resolved :white_check_mark:"
@@ -51,14 +58,16 @@ def duplicate_transaction_text(*, transaction_id: str, match: Match, now: float)
     return "\n".join(lines)
 
 
-def duplicate_player_text(*, player_id: str, matches: list[Match], now: float) -> str:
+def duplicate_player_text(
+    *, player_id: str, matches: list[Match], now: float, window_days: float
+) -> str:
     shown = matches[: config.MAX_DUPLICATES_SHOWN]
     hidden = len(matches) - len(shown)
 
     lines = [
         ":warning: *Possible duplicate*",
         f"Player `{player_id}` — {_plural(len(matches), 'escalation')} "
-        f"in this channel in the last {config.DUP_WINDOW_DAYS} days:",
+        f"in this channel in the last {_window_label(window_days)}:",
     ]
     for match in shown:
         age = humanize_age(now - match.created_at)

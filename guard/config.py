@@ -3,6 +3,11 @@
 import os
 
 DUP_WINDOW_DAYS = 7
+# В bonuses совпадение идёт по одному player id, то есть значит всего лишь
+# "тот же человек". На реальной истории 7 дней давали 24 срабатывания на
+# 74 сообщения, почти все про уже закрытые обращения по другому поводу.
+# 12 часов оставляют 3, и все они укладываются в одну смену.
+BONUSES_DUP_WINDOW_DAYS = 0.5
 STALE_AFTER_DAYS = 7
 RETENTION_DAYS = 30
 SWEEP_INTERVAL_SECONDS = 3600
@@ -31,15 +36,18 @@ def load_channels() -> dict[str, dict]:
             "name": "2-payments",
             "match": "transaction_id",
             "stale_tracking": True,
+            "dup_window_days": DUP_WINDOW_DAYS,
         },
         _require("CHANNEL_BONUSES"): {
             "name": "7-bonuses",
             "match": "player_id",
             "stale_tracking": False,
+            "dup_window_days": BONUSES_DUP_WINDOW_DAYS,
         },
         _require("CHANNEL_KYC"): {
             "name": "3-kyc",
             "match": "player_id",
             "stale_tracking": False,
+            "dup_window_days": DUP_WINDOW_DAYS,
         },
     }

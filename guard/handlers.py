@@ -34,7 +34,8 @@ def _check_duplicates(conn, poster: Poster, rule: dict, channel_id: str, ts: str
     if not value:
         return
 
-    since = now - config.DUP_WINDOW_DAYS * config.DAY_SECONDS
+    window_days = rule.get("dup_window_days", config.DUP_WINDOW_DAYS)
+    since = now - window_days * config.DAY_SECONDS
     rows = db.find_duplicates(
         conn,
         channel_id=channel_id,
@@ -58,7 +59,9 @@ def _check_duplicates(conn, poster: Poster, rule: dict, channel_id: str, ts: str
     if field == "transaction_id":
         text = messages.duplicate_transaction_text(transaction_id=value, match=matches[0], now=now)
     else:
-        text = messages.duplicate_player_text(player_id=value, matches=matches, now=now)
+        text = messages.duplicate_player_text(
+            player_id=value, matches=matches, now=now, window_days=window_days
+        )
 
     if poster.reply_in_thread(channel_id, ts, text):
         db.mark_duplicate_notified(conn, channel_id, ts)

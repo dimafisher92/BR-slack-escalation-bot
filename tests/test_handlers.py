@@ -383,3 +383,24 @@ def test_duplicate_linking_to_an_unrelated_message_still_reports(conn, poster, c
 
     assert len(client.posted) == 1
     assert "Duplicate escalation" in client.posted[0]["text"]
+
+
+NARROW_KYC = {
+    "C_KYC": {"name": "3-kyc", "match": "player_id", "stale_tracking": False,
+              "dup_window_days": 0.5},
+}
+
+
+def test_match_outside_the_channel_window_is_silent(conn, poster, client):
+    handlers.handle_message(conn, poster, NARROW_KYC, kyc_event(NOW - 13 * 3600), NOW - 13 * 3600)
+    handlers.handle_message(conn, poster, NARROW_KYC, kyc_event(NOW), NOW)
+
+    assert client.posted == []
+
+
+def test_match_inside_the_channel_window_is_reported_with_that_window(conn, poster, client):
+    handlers.handle_message(conn, poster, NARROW_KYC, kyc_event(NOW - 5 * 3600), NOW - 5 * 3600)
+    handlers.handle_message(conn, poster, NARROW_KYC, kyc_event(NOW), NOW)
+
+    assert len(client.posted) == 1
+    assert "in the last 12 hours" in client.posted[0]["text"]
