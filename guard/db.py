@@ -2,6 +2,8 @@
 
 import sqlite3
 
+from guard import config
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS escalations (
     channel_id         TEXT    NOT NULL,
@@ -129,3 +131,48 @@ def meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
         (key, value),
     )
     conn.commit()
+
+
+def add_reaction(conn: sqlite3.Connection, channel_id: str, ts: str, name: str, user_id: str) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO reactions (channel_id, ts, name, user_id) VALUES (?, ?, ?, ?)",
+        (channel_id, ts, name, user_id),
+    )
+    conn.commit()
+
+
+def remove_reaction(conn: sqlite3.Connection, channel_id: str, ts: str, name: str, user_id: str) -> None:
+    conn.execute(
+        "DELETE FROM reactions WHERE channel_id = ? AND ts = ? AND name = ? AND user_id = ?",
+        (channel_id, ts, name, user_id),
+    )
+    conn.commit()
+
+
+def reaction_names(conn: sqlite3.Connection, channel_id: str, ts: str) -> set[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT name FROM reactions WHERE channel_id = ? AND ts = ?",
+        (channel_id, ts),
+    ).fetchall()
+    return {row["name"] for row in rows}
+
+
+def users_with_reaction(
+    conn: sqlite3.Connection, channel_id: str, ts: str, names: frozenset[str]
+) -> list[str]:
+    if not names:
+        return []
+    placeholders = ",".join("?" for _ in names)
+    # GROUP BY, а не DISTINCT: SQLite не даёт сортировать DISTINCT-выборку
+    # по колонке, которой нет в списке выбора.
+    rows = conn.execute(
+        f"SELECT user_id, MIN(rowid) AS first_seen FROM reactions "
+        f"WHERE channel_id = ? AND ts = ? AND name IN ({placeholders}) "
+        f"GROUP BY user_id ORDER BY first_seen",
+        (channel_id, ts, *sorted(names)),
+    ).fetchall()
+    return [row["user_id"] for row in rows]
+
+
+def is_resolved(conn: sqlite3.Connection, channel_id: str, ts: str) -> bool:
+    return bool(reaction_names(conn, channel_id, ts) & set(config.RESOLVED_EMOJI))
