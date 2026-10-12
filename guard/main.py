@@ -32,6 +32,28 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def with_retries(action, *, label: str, sleep=time.sleep):
+    """Выполнить action, переживая кратковременные сетевые сбои.
+
+    Паузы растут вдвое. Исчерпав попытки, пробрасывает исходное исключение:
+    тогда процесс действительно нездоров и его должен перезапустить systemd.
+    """
+    delay = config.STARTUP_RETRY_BASE_SECONDS
+    for attempt in range(1, config.STARTUP_RETRY_ATTEMPTS + 1):
+        try:
+            return action()
+        except Exception:
+            if attempt == config.STARTUP_RETRY_ATTEMPTS:
+                log.error("%s failed after %d attempts, giving up", label, attempt, exc_info=True)
+                raise
+            log.warning(
+                "%s failed on attempt %d/%d, retrying in %ds",
+                label, attempt, config.STARTUP_RETRY_ATTEMPTS, delay, exc_info=True,
+            )
+            sleep(delay)
+            delay *= 2
+
+
 def bootstrap(conn, client, channels: dict, now: float, cold_start_silent: bool) -> None:
     """Догнать историю; на пустой базе погасить накопившийся архив."""
     was_empty = db.is_empty(conn)
@@ -68,10 +90,15 @@ def main(argv: list[str] | None = None) -> int:
     conn = db.connect(args.db)
     db.init_schema(conn)
 
-    app = App(token=os.environ["SLACK_BOT_TOKEN"])
+    # App() при создании ходит в auth.test, bootstrap - в conversations.history.
+    # Оба шага сетевые и до этой обёртки валили процесс на первом же сбое DNS.
+    app = with_retries(lambda: App(token=os.environ["SLACK_BOT_TOKEN"]), label="Slack auth")
     poster = Poster(app.client, dry_run=args.dry_run)
 
-    bootstrap(conn, app.client, channels, time.time(), config.COLD_START_SILENT)
+    with_retries(
+        lambda: bootstrap(conn, app.client, channels, time.time(), config.COLD_START_SILENT),
+        label="Backfill",
+    )
 
     if args.sweep_once:
         sweeper.run_sweep(conn, poster, channels, time.time())

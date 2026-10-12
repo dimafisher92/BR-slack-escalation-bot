@@ -2,8 +2,12 @@
 Description=Braverave Escalation Guard
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=300
-StartLimitBurst=5
+# Лимит перезапусков намеренно выключен. С окном в 300 секунд и пятью
+# попытками моргнувший 25.09.2026 DNS увёл сервис в failed на 17 дней:
+# systemd сдался раньше, чем сеть вернулась. Для внутреннего бота
+# доступность важнее вежливости к systemd, а от настоящего цикла падений
+# защищает RestartSec.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -12,7 +16,7 @@ WorkingDirectory=/opt/escalation-guard
 EnvironmentFile=/opt/escalation-guard/.env
 ExecStart=/opt/escalation-guard/.venv/bin/python -m guard.main
 Restart=always
-RestartSec=10
+RestartSec=30
 NoNewPrivileges=yes
 ProtectSystem=strict
 PrivateTmp=yes

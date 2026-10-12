@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from guard import db, main
+from guard import config, db, main
 from guard.poster import Poster
 
 DAY = 86400.0
@@ -116,3 +116,38 @@ def test_scheduler_loop_runs_sweep_then_exits(conn):
     main.scheduler_loop(conn, Poster(client), CHANNELS, stop, interval=0.01, clock=clock)
 
     assert len(client.posted) == 1
+
+
+def test_with_retries_returns_immediately_on_success():
+    slept = []
+    assert main.with_retries(lambda: "ok", label="x", sleep=slept.append) == "ok"
+    assert slept == []
+
+
+def test_with_retries_survives_a_transient_failure():
+    calls = []
+    slept = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise OSError("Temporary failure in name resolution")
+        return "ok"
+
+    assert main.with_retries(flaky, label="x", sleep=slept.append) == "ok"
+    assert len(calls) == 3
+    # Экспоненциальная пауза, и после удачной попытки больше не ждём.
+    assert slept == [config.STARTUP_RETRY_BASE_SECONDS, config.STARTUP_RETRY_BASE_SECONDS * 2]
+
+
+def test_with_retries_gives_up_and_reraises():
+    slept = []
+
+    def always_fails():
+        raise OSError("Temporary failure in name resolution")
+
+    with pytest.raises(OSError, match="name resolution"):
+        main.with_retries(always_fails, label="x", sleep=slept.append)
+
+    # Попыток ровно столько, сколько в конфиге, и после последней не спим.
+    assert len(slept) == config.STARTUP_RETRY_ATTEMPTS - 1

@@ -21,6 +21,12 @@ COLD_START_SILENT = True
 
 DAY_SECONDS = 86400
 
+# Запуск переживает кратковременный сетевой сбой сам. 25 сентября 2026 года
+# резолвер на VPS моргнул, Slack Web API упал с name resolution, процесс
+# вышел с ошибкой, и systemd после пяти попыток сдался насовсем.
+STARTUP_RETRY_ATTEMPTS = 6
+STARTUP_RETRY_BASE_SECONDS = 5
+
 
 def _require(name: str) -> str:
     value = os.environ.get(name, "").strip()
